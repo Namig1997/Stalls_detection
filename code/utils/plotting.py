@@ -26,9 +26,15 @@ if __name__ == "__main__":
         fig = px.histogram(df, x='area', color='label', barmode='overlay', histnorm='percent')
         plot(fig, filename='areas_hist.html')
     
-    if True:
+    if False:
 
         logs = pd.read_csv("../logs/testlogs.txt")
         logs['index'] = logs.index.values
         fig = px.line(logs, x='index', y='loss')
         plot(fig, filename="../output/losses.html")
+
+    if False:
+        
+        test = pd.read_csv("../../res/data/test_metadata.csv", index_col=0)
+        print(test['num_frames'].describe())
+        print(test.head())

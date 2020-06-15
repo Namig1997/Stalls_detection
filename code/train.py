@@ -3,14 +3,19 @@ import os
 import time
 import argparse
 import datetime
+import pandas as pd
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, roc_auc_score)
 
 import torch
 from torch.nn import BCELoss
 from torch.optim import Adam
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+from torch.utils.data import random_split
 
-from models.networks import G_Unet_add_all3D, DensePredictor, EncoderCNN
+from models.networks import G_Unet_add_all3D, EncoderCNNPredictor
 
 def weights_init_normal(m):
     classname = m.__class__.__name__
@@ -20,13 +25,30 @@ def weights_init_normal(m):
         torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
         torch.nn.init.constant_(m.bias.data, 0.0)
 
+def get_binary(y, threshold=0.5):
+    return y >= threshold
+
+def get_scores(y_true, y_pred, threshold=0.5):
+    y_pred_bin = get_binary(y_pred, threshold=threshold)
+    scores = {
+        "accuracy": accuracy_score(y_true, y_pred_bin),
+        "precision": precision_score(y_true, y_pred_bin),
+        "recall": recall_score(y_true, y_pred_bin),
+        "f1": f1_score(y_true, y_pred_bin),
+        "auc": roc_auc_score(y_true, y_pred),
+        "mcc": matthews_corrcoef(y_true, y_pred_bin),
+    }
+    return scores
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
 parser.add_argument("--n_epochs", type=int, default=100, help="number of epochs of training")
-parser.add_argument("--dataset_name", type=str, default="nano_train_set", help="name of the dataset")
+parser.add_argument("--train_name", type=str, default="micro_train_set", help="name of the train dataset")
+parser.add_argument("--test_name", type=str, default="micro_test_set", help="name of the test dataset")
 parser.add_argument("--logs", default=None, help="txt file for logs")
 parser.add_argument("--lr", type=float, default=2e-4, help='learning rate')
-parser.add_argument("--size", type=int, default=None, help="image size")
+parser.add_argument("--save_models", type=int, default=0, help="Save or not models")
+parser.add_argument("--submission", type=str, default="", help="Create or not a submission")
 opt = parser.parse_args()
 
 os.makedirs("logs/", exist_ok=True)
@@ -34,8 +56,6 @@ trained_models = "trained_models/"
 
 if opt.logs is None:
     raise ValueError("define txt file for logging")
-if opt.size is None:
-    raise ValueError("specify the size of your images")
 
 log_file_header = "epoch,epochs,batch,batches,lr,loss"
 
@@ -44,43 +64,39 @@ call(["echo " + log_file_header + " >> " + "logs/" + opt.logs], shell=True)
 cuda = True if torch.cuda.is_available() else False
 Tensor = torch.cuda.FloatTensor if cuda else torch.Tensor
 
-#Unet3D = G_Unet_add_all3D(nz=0)
-E = EncoderCNN(feature_dim=64)
-Predictor = DensePredictor(64)
+Predictor = EncoderCNNPredictor()
 
 if cuda:
-    E = E.cuda()
     Predictor = Predictor.cuda()
 
-E.apply(weights_init_normal)
-Predictor.apply(weights_init_normal)
+Predictor_optimizer = Adam(Predictor.parameters(), lr=opt.lr)
 
-E_optimizer = Adam(E.parameters(), lr=opt.lr)
-Predictor_optimizer = Adam(Predictor.parameters(), lr=opt.lr) 
+decayRate = 0.99
+my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=Predictor_optimizer, gamma=decayRate)
 lr = opt.lr
 
 BCE = BCELoss()
 
-data = torch.load("../res/data/%s.pth" % opt.dataset_name)
+train_set = torch.load("../res/data/%s.pth" % opt.train_name)
+test_set = torch.load("../res/data/%s.pth" % opt.test_name)
 
+metrics = pd.DataFrame(None, columns=['accuracy', 'precision', 'recall', 'f1', 'auc', 'mcc'])
 
 for ep in range(opt.epoch, opt.n_epochs):
-    for i, batch in enumerate(data):
+    for i, batch in enumerate(train_set):
         
-        E_optimizer.zero_grad()
         Predictor_optimizer.zero_grad()
 
         scans = Variable(batch[0].type(Tensor))
         ave_scan = Variable(batch[1].type(Tensor))
         targets = torch.unsqueeze(Variable(batch[2].type(Tensor)), -1)
 
-        flatten_features = E(scans)
-        predictions = Predictor(flatten_features)
+        predictions = Predictor(scans)
 
         L = BCE(predictions, targets)
 
         L.backward()
-        E_optimizer.step()
+        Predictor_optimizer.step()
     
         if (i % 4) == 0:
 
@@ -88,7 +104,7 @@ for ep in range(opt.epoch, opt.n_epochs):
                     ep,
                     opt.n_epochs,
                     i,
-                    len(data),
+                    len(train_set),
                     lr,
                     L.item()
                 )
@@ -100,6 +116,57 @@ for ep in range(opt.epoch, opt.n_epochs):
             string_statistics = ",".join(map(lambda x: str(x), statistics))
             call("echo " + string_statistics + " >> " + "logs/" + opt.logs, shell=True)
 
+    my_lr_scheduler.step()
+    lr = Predictor_optimizer.param_groups[0]["lr"]
+    #check performance of the model after each epoch
+    y_pred = []
+    y_true = []
+    for b in test_set:
+        
+        scans = Variable(b[0].type(Tensor))
+        ave_scan = Variable(b[1].type(Tensor))
+        targets = b[2]
 
-torch.save(E.state_dict(), trained_models + "E.pth")
-torch.save(Predictor.state_dict(), trained_models + "DensePredictor.pth")
+        with torch.no_grad():
+
+            predictions = Predictor(scans)
+
+        
+        y_pred.extend(predictions.cpu().numpy().flatten())
+        y_true.extend(targets)
+    
+    y_pred = np.array(y_pred)
+    y_true = np.array(y_true)
+    scores = get_scores(y_true, y_pred)
+    metrics.loc[ep, ['accuracy', 'precision', 'recall', 'f1', 'auc', 'mcc']] = (scores['accuracy'], scores['precision'],
+                                                                                scores['recall'], scores['f1'],
+                                                                                scores['auc'], scores['mcc'])
+
+metrics.to_csv("logs/" + "metrics_" + opt.logs)
+
+
+if opt.save_models:
+    torch.save(Predictor.state_dict(), trained_models + "Predictor.pth")
+
+if opt.submission:
+
+    submission = pd.read_csv("../res/data/submission_format.csv", index_col=0)
+    submission['stalled'] = None
+
+    testset = torch.load("../res/data/test_set.pth")
+
+    for b in testset:
+
+        with torch.no_grad():
+
+            scans = Variable(b[0].type(Tensor))
+            ave_scan = Variable(b[1].type(Tensor))
+            names = b[2]
+
+            predictions = Predictor(scans)
+
+            submission.loc[names, 'stalled'] = predictions.flatten().cpu()
+            
+    submission['stalled'] = submission['stalled'].apply(lambda x: 1 if x >= 0.5 else 0)
+    submission['stalled'] = submission['stalled'].astype(int)
+    submission.to_csv("../res/submissions/" + opt.submission)

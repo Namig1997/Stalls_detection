@@ -33,16 +33,26 @@ if __name__ == "__main__":
     for i, v in enumerate(tqdm(df.index.values)):
         
         mp4video = nano_path + v
-        video_arrays.append(np.expand_dims(video2tensor(mp4video, length=20, size=(32, 32)), axis=0))
+        
+        video_tensor = np.expand_dims(video2tensor(mp4video, length=20, size=(32, 32)), axis=0)
+        #flipped_video_tensor = np.flip(video_tensor, axis=-1)
+        video_arrays.append(video_tensor)
+        #video_arrays.append(flipped_video_tensor)
+        
+        #one for a video tensor and another for flipped tensor
         average_array.append(np.expand_dims(average_and_crop_video(mp4video, size=(32, 32))[1], axis=0))
+        #average_array.append(np.expand_dims(average_and_crop_video(mp4video, size=(32, 32))[1], axis=0))
+        
         labels.append(df.loc[v, 'label'])
+        #labels.append(df.loc[v, 'label'])
+        
         names.append(v)
+        #names.append(v)
 
     
     dataset = list(zip(video_arrays, average_array, labels, names))
-    print(dataset)
     dataset = DataLoader(dataset, batch_size=128, shuffle=True, pin_memory=True)
-    torch.save(dataset, '../../res/data/nano_train_set.pth')
+    torch.save(dataset, '../../res/data/nano_test_set.pth')
 
 
     
