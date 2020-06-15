@@ -41,7 +41,7 @@ if __name__ == "__main__":
     
     dataset = list(zip(video_arrays, average_array, labels, names))
     print(dataset)
-    dataset = DataLoader(dataset, batch_size=16, shuffle=True, pin_memory=True)
+    dataset = DataLoader(dataset, batch_size=128, shuffle=True, pin_memory=True)
     torch.save(dataset, '../../res/data/nano_train_set.pth')
 
 

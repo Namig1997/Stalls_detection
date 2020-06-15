@@ -5,6 +5,37 @@ import numpy as np
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+
+class EncoderCNN(nn.Module):
+    """
+    CNN network to encode 3d pic into a feature vector
+    """
+    def __init__(self, in_layers=1, feature_dim=64):
+        super(EncoderCNN, self).__init__()
+
+        self.relu = nn.ReLU()
+        layers = []
+        out_layers = 2
+
+        for i in range(4):
+            layers.append(nn.Conv3d(in_layers, out_layers, 3, stride=i // 2 + 1, bias=False, padding=1))
+            layers.append(nn.BatchNorm3d(out_layers))
+            layers.append(self.relu)
+            in_layers = out_layers
+            out_layers *= 2
+            
+
+        self.network = nn.Sequential(*layers)
+        
+        self.fl = nn.Flatten()
+        self.fc1 = nn.Linear(5120, feature_dim)
+
+    def forward(self, x):
+        x = self.network(x)
+        x = self.fl(x)
+        x = self.relu(self.fc1(x))
+        return x
+
 class G_Unet_add_all3D(nn.Module):
     """
     3D_UNET
@@ -149,14 +180,15 @@ def fetch_simple_block3d(in_lay, out_lay, nl, norm_layer, stride=1, kw=3, padw=1
 
 class DensePredictor(nn.Module):
 
-    def __init__(self, input_dim=256, output_dim=1):
+    def __init__(self, input_dim=64, output_dim=1):
         super(DensePredictor, self).__init__()
 
-        self.fc1 = nn.Linear(input_dim, input_dim/2)
+        self.fc1 = nn.Linear(input_dim, input_dim // 2)
         self.relu = nn.LeakyReLU()
-        self.fc2 = nn.Linear(input_dim/2, 1)
+        self.fc2 = nn.Linear(input_dim // 2, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x = self.rely(self.fc1(x))
+        x = self.relu(self.fc1(x))
         x = self.sigmoid(self.fc2(x))
+        return x

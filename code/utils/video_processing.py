@@ -116,7 +116,7 @@ def average_and_crop_video(mp4file, size=None):
 
 if __name__ == "__main__":
 
-    if True:
+    if False:
         #193536.mp4 surface area 0 
         #104360.mp4
         im, gr, size, area, _ = average_and_crop_video('../../res/data/nano_vessels/nano/193536.mp4', size=(32, 32))
