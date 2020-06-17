@@ -12,6 +12,49 @@ def apply_invert(frame):
     return cv2.bitwise_not(frame)
 
 
+def apply_rotation(frame, method=1):
+    if method==1:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if method==2:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if method==3:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    if method==4:
+        return cv2.flip(frame, -1)
+    
+
+
+def video2tensor_with_rotation(mp4file, length=20, size=None, method=1):
+
+    cap = cv2.VideoCapture(mp4file)
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    heigth = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    channels = 3
+    
+    frames = []
+    # Read until video is completed
+    while(cap.isOpened()):
+    # Capture frame-by-frame
+        ret, frame = cap.read()
+        if ret == True:
+            if size is not None:
+                frames.append(crop_frame(frame, size)[1])
+            else:
+                frames.append(frame)
+        else:
+            break
+    cap.release()
+
+    starting_frame = len(frames) // 2 - length // 2
+    ending_frame = len(frames) // 2 + length // 2
+    frames = frames[starting_frame:ending_frame]
+    frames = [apply_rotation(frame, method=method) for frame in frames]
+    tensor =  np.stack(frames, axis=-1)
+    
+    return tensor
+
+
 def video2tensor(mp4file, length=20, size=None):
 
     cap = cv2.VideoCapture(mp4file)

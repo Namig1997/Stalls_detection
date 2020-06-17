@@ -5,6 +5,7 @@ import argparse
 import datetime
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, roc_auc_score)
 
@@ -15,7 +16,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
-from models.networks import G_Unet_add_all3D, EncoderCNNPredictor
+from models.networks import EncoderCNNPredictor
 
 def weights_init_normal(m):
     classname = m.__class__.__name__
@@ -83,14 +84,17 @@ test_set = torch.load("../res/data/%s.pth" % opt.test_name)
 metrics = pd.DataFrame(None, columns=['accuracy', 'precision', 'recall', 'f1', 'auc', 'mcc'])
 
 for ep in range(opt.epoch, opt.n_epochs):
+    Predictor.train()
     for i, batch in enumerate(train_set):
         
         Predictor_optimizer.zero_grad()
 
-        scans = Variable(batch[0].type(Tensor))
-        ave_scan = Variable(batch[1].type(Tensor))
+        scans = Variable(batch[0].type(Tensor))/255.0
+        
+        ave_scan = Variable(torch.unsqueeze(batch[1].type(Tensor), -1))/255.0
         targets = torch.unsqueeze(Variable(batch[2].type(Tensor)), -1)
 
+        scans = torch.cat((scans, ave_scan), dim=-1)
         predictions = Predictor(scans)
 
         L = BCE(predictions, targets)
@@ -121,10 +125,12 @@ for ep in range(opt.epoch, opt.n_epochs):
     #check performance of the model after each epoch
     y_pred = []
     y_true = []
+    Predictor.eval()
     for b in test_set:
         
-        scans = Variable(b[0].type(Tensor))
-        ave_scan = Variable(b[1].type(Tensor))
+        scans = Variable(b[0].type(Tensor))/255.0
+        ave_scan = Variable(torch.unsqueeze(b[1].type(Tensor), -1))/255.0
+        scans = torch.cat((scans, ave_scan), dim=-1)
         targets = b[2]
 
         with torch.no_grad():
@@ -145,11 +151,57 @@ for ep in range(opt.epoch, opt.n_epochs):
 metrics.to_csv("logs/" + "metrics_" + opt.logs)
 
 
+#use validation set for more training to gain some possible improvements
+lr = lr / decayRate
+Predictor_optimizer = Adam(Predictor.parameters(), lr=lr)
+decayRate = 0.96
+my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=Predictor_optimizer, gamma=decayRate)
+print("additional training on validation set")
+for ep in range(opt.n_epochs, opt.n_epochs + opt.n_epochs // 4):
+    Predictor.train()
+    for i, batch in enumerate(test_set):
+        
+        Predictor_optimizer.zero_grad()
+
+        scans = Variable(batch[0].type(Tensor))/255.0
+        ave_scan = Variable(torch.unsqueeze(batch[1].type(Tensor), -1))/255.0
+        scans = torch.cat((scans, ave_scan), dim=-1)
+        targets = torch.unsqueeze(Variable(batch[2].type(Tensor)), -1)
+
+        predictions = Predictor(scans)
+
+        L = BCE(predictions, targets)
+
+        L.backward()
+        Predictor_optimizer.step()
+
+        if (i % 4) == 0:
+
+            statistics = (
+                    ep,
+                    opt.n_epochs,
+                    i,
+                    len(train_set),
+                    lr,
+                    L.item()
+                )
+
+            COMMAND = "\r[Epoch %d/%d] [Batch %d/%d] [lr: %f] [loss: %f]" % tuple(statistics)
+
+            call("echo " + COMMAND, shell=True)
+
+            string_statistics = ",".join(map(lambda x: str(x), statistics))
+            call("echo " + string_statistics + " >> " + "logs/" + opt.logs, shell=True)
+    
+    my_lr_scheduler.step()
+
+
+
 if opt.save_models:
     torch.save(Predictor.state_dict(), trained_models + "Predictor.pth")
 
 if opt.submission:
-
+    Predictor.eval()
     submission = pd.read_csv("../res/data/submission_format.csv", index_col=0)
     submission['stalled'] = None
 
@@ -159,8 +211,10 @@ if opt.submission:
 
         with torch.no_grad():
 
-            scans = Variable(b[0].type(Tensor))
-            ave_scan = Variable(b[1].type(Tensor))
+            scans = Variable(b[0].type(Tensor))/255.0
+            #ave_scan = torch.unsqueeze(Variable(b[1].type(Tensor)), -1).expand(scans.size(0), scans.size(1), scans.size(2), scans.size(3), 20)
+            ave_scan = Variable(torch.unsqueeze(b[1].type(Tensor), -1))/255.0
+            scans = torch.cat((scans, ave_scan), dim=-1)
             names = b[2]
 
             predictions = Predictor(scans)
