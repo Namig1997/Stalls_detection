@@ -221,6 +221,7 @@ _custom_objects = {
     "ConvBlock_1": ConvBlock_1,
     "ConvBlock_2": ConvBlock_2,
     "ConvBlock_4": ConvBlock_4,
+    "Dense": Dense,
 }
 
 __layers__ = {
