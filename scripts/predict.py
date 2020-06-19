@@ -13,7 +13,7 @@ __folder = os.path.join(__folder_current, "..")
 __folder_code = os.path.join(__folder, "code")
 sys.path.append(__folder_code)
 from data import DataLoaderReader
-from models.layers import _custom_objects
+from net.layers import _custom_objects
 
 
 __folder_res    = os.path.join(__folder, "res")
@@ -27,13 +27,19 @@ def main(
         out,
         batch_size=32,
         test=False,
+        epoch=None,
+        filename_csv=None,
         ): 
 
     if test:
         data_test_metadata = pd.read_csv(filename_test_metadata)
         filenames = data_test_metadata.filename.values.tolist()
     else:
-        filenames = [f.name.replace(".npy", ".mp4") for f in os.scandir(folder_data)]
+        if filename_csv:
+            data = pd.read_csv(filename_csv)
+            filenames = data.filename.values.tolist()
+        else:
+            filenames = [f.name.replace(".npy", ".mp4") for f in os.scandir(folder_data)]
 
     names = [n.split(".")[0] for n in filenames]
 
@@ -50,14 +56,18 @@ def main(
     folder_model = os.path.join(__folder_models, name)
     folder_checkpoints = os.path.join(folder_model, "checkpoints")
 
-    filename_checkpoint_best = os.path.join(folder_checkpoints, "best")
-    model = tf.keras.models.load_model(filename_checkpoint_best, 
+    if epoch is None:
+        filename_checkpoint = os.path.join(folder_checkpoints, "best")
+    else:
+        filename_checkpoint = os.path.join(folder_checkpoints, "{:02d}".format(epoch))
+    model = tf.keras.models.load_model(filename_checkpoint, 
         custom_objects=_custom_objects, compile=False)
 
     predictions = model.predict(
         batch_generator, 
         steps=batch_number,
         verbose=1,
+        workers=0,
     )
     predictions = np.reshape(predictions, (len(predictions),))
 
@@ -78,6 +88,10 @@ def parse_args():
         default=32, type=int)
     parser.add_argument("--test", help="if set, predictions are retrieved for the test data, i.e. files in the test_metadata.csv",
         action="store_true")
+    parser.add_argument("--epoch", help="index of checkpoint to load; if not provided, best is loaded",
+        default=None, type=int)
+    parser.add_argument("--csv", help="path to csv file to get filenames from",
+        default=None)
     return parser.parse_args()
 
 
@@ -88,4 +102,6 @@ if __name__ == "__main__":
         args.folder,
         args.out,
         batch_size=args.batch_size,
+        epoch=args.epoch,
+        filename_csv=args.csv,
     )

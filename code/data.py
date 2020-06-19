@@ -79,9 +79,9 @@ class DataLoader:
 
     def get_batch_number(self, batch_size=16, leave_last=True):
         if leave_last:
-            return np.ceil(len(self.names) / batch_size)
+            return int(np.ceil(len(self.names) / batch_size))
         else:
-            return np.floor(len(self.names) / batch_size)
+            return int(np.floor(len(self.names) / batch_size))
 
     def batch_generator(self, batch_size=16, leave_last=True, load_target=False):
         while True:

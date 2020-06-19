@@ -18,7 +18,7 @@ filename_train_labels = os.path.join(__folder_data, "train_labels.csv")
 
 
 def get_binary(y, threshold=0.5):
-    return y >= threshold
+    return np.array(y >= threshold, np.int32)
 
 def get_scores(y_true, y_pred, threshold=0.5):
     y_pred_bin = get_binary(y_pred, threshold=threshold)
@@ -35,7 +35,6 @@ def get_scores(y_true, y_pred, threshold=0.5):
 
 def print_scores(y_true, y_pred, threshold_step=0.05, best_score_name="mcc"):
     threshold_range = np.arange(threshold_step, 1, threshold_step)
-    # threshold_range = [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 0.8, 0.9, 0.99, 0.999]
 
     score_names = {
         "ratio": "R",
@@ -54,6 +53,7 @@ def print_scores(y_true, y_pred, threshold_step=0.05, best_score_name="mcc"):
     best_score = None
     best_score_threshold = None
     for threshold in threshold_range:
+        # print(tf.keras.metrics.BinaryAccuracy(threshold=threshold)(y_true, y_pred))
         scores = get_scores(y_true, y_pred, threshold=threshold)
         print(string_scores.format(threshold=threshold, **scores))
 
@@ -80,7 +80,6 @@ def main(
     names = data_predictions.filename.values.tolist()
     names = [str(name).replace(".npy", ".mp4") for name in names]
     predictions = data_predictions.prediction.values
-    names = [os.path.basename(name) + ".mp4" for name in names]
 
     data_train_labels = data_train_labels[
         data_train_labels.filename.isin(names)]
@@ -88,14 +87,7 @@ def main(
     labels_train = data_train_labels.stalled.values
 
     indexes = [names_train.index(name) for name in names]
-    # indexes = [names.index(name) for name in names_train]
     labels = labels_train[indexes]
-
-    print(names[:5])
-    print([names_train[index] for index in indexes][:5])
-    print(names_train[:5])
-    print(predictions[:5])
-    print(labels[:5])
 
     print("{:5s}: {:5d} {:.4f}".format(
         "True", np.sum(labels), np.sum(labels) / len(labels)))
