@@ -69,6 +69,7 @@ def video2tensor(mp4file, length=20, size=None):
     # Capture frame-by-frame
         ret, frame = cap.read()
         if ret == True:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if size is not None:
                 frames.append(crop_frame(frame, size)[1])
             else:
@@ -78,6 +79,7 @@ def video2tensor(mp4file, length=20, size=None):
     cap.release()
 
     starting_frame = len(frames) // 2 - length // 2
+    starting_frame = max(0, starting_frame)
     ending_frame = len(frames) // 2 + length // 2
     frames = frames[starting_frame:ending_frame]
     tensor =  np.stack(frames, axis=-1)
