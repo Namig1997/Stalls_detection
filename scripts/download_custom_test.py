@@ -27,18 +27,18 @@ def main(
 
     if not filename_list:
         data_train_metadata = pd.read_csv(filename_train_metadata)
-        data_train_labels = pd.read_csv("./res/data/train_labels.csv")
-        names_stalled = data_train_labels[data_train_labels.stalled == 1].filename.values.tolist()
-        data_train_metadata = data_train_metadata[
-            data_train_metadata.filename.isin(names_stalled)]
-        names = data_train_metadata.filename.values.tolist()
-        urls = data_train_metadata.url.values.tolist()
+        # data_train_labels = pd.read_csv("./res/data/train_labels.csv")
+        # names_stalled = data_train_labels[data_train_labels.stalled == 1].filename.values.tolist()
+        # data_train_metadata = data_train_metadata[
+        #     data_train_metadata.filename.isin(names_stalled)]
+        # names = data_train_metadata.filename.values.tolist()
+        # urls = data_train_metadata.url.values.tolist()
 
-        # if seed is not None:
-        #     np.random.seed(seed)
-        # indexes = np.random.choice(np.arange(len(names)), num, replace=False)
-        # names = [names[i] for i in indexes]
-        # urls = [urls[i] for i in indexes]
+        if seed is not None:
+            np.random.seed(seed)
+        indexes = np.random.choice(np.arange(len(names)), num, replace=False)
+        names = [names[i] for i in indexes]
+        urls = [urls[i] for i in indexes]
     else:
         with open(filename_list, "r") as file:
             names = file.read().split("\n")

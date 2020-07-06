@@ -5,23 +5,31 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-# import tensorflow_addons as tfa
 import argparse
+import json
+import datetime
+from zipfile import ZipFile
 
 __folder_current = os.path.abspath(os.path.dirname(__file__))
 __folder = os.path.join(__folder_current, "..")
 __folder_code = os.path.join(__folder, "code")
 sys.path.append(__folder_code)
-from data import DataLoaderReader
-from net.model import get_simple_model, get_simple_model_2
+from data import DataLoaderReader, DataLoaderProcesser
+from net.model import get_simple_model
 from net.metrics import MCC
 from net.logs import CustomLogger
 
-
+__folder_scripts = os.path.join(__folder, "scripts")
 __folder_res    = os.path.join(__folder, "res")
 __folder_data   = os.path.join(__folder_res, "data")
 __folder_models = os.path.join(__folder_res, "models")
 filename_train_labels = os.path.join(__folder_data, "train_labels.csv")
+
+
+gpus = tf.config.experimental.list_physical_devices("GPU")
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
 
 
 def _basename(folder):
@@ -30,16 +38,124 @@ def _basename(folder):
         name = os.path.basename(os.path.dirname(folder))
     return name
 
+def write_json(data, filename):
+    with open(filename, "w") as file:
+        json.dump(data, file, indent=4)
+    return json.dumps(data)
+
+def zipfiles(filenames_in, filename_out):
+    obj = ZipFile(filename_out, "w")
+    for filename in filenames_in:
+        obj.write(filename)
+    obj.close()
+    return
+
+def get_model_name(folder=__folder_models):
+    names = [f.name for f in os.scandir(folder)]
+    time = datetime.datetime.now()
+    prefix = time.strftime("%d%m")
+    max_index = -1
+    for name in names:
+        if name[:4] == prefix:
+            max_index = max(int(name[5:]), max_index)
+    return "{:s}_{:d}".format(prefix, max_index+1)
+    
+
+default_params = {
+    "shape": (32, 32, 32),
+    "shuffle": True,
+    "balanced": True,
+    "augmentation": True,
+    "size_change_z": 0.05,
+    "size_change_xy": 0.05,
+    "shift_z": 0.05,
+    "shift_xy": 0.05,
+    "rotation": False,
+    "rotation_z": True,
+    "noise": 0.05,
+    "monitor_metric": "mcc_09",
+    "monitor_mode": "max",
+    "learning_rate_start": 1e-3,
+    "learning_rate_factor": 0.1,
+    "learning_rate_patience": 10,
+    "learning_rate_min": 1e-6,
+    "batch_size": 32,
+    "epochs": 100,
+    "steps": None,
+    "steps_mult": None,
+    "early_stopping_patience": 40,
+}
+
+def adjust_params(params, args):
+    if args.batch_size is not None:
+        params["batch_size"] = args.batch_size
+    if args.shape is not None:
+        params["shape"] = (args.shape, args.shape, args.shape)
+    if args.shape_z is not None:
+        params["shape"] = (args.shape_z, params["shape"][1], params["shape"][2])
+    if args.shape_xy is not None:
+        params["shape"] = (params["shape"][0], args.shape_xy, args.shape_xy)
+    
+    if args.shuffle is not None:
+        params["shuffle"] = args.shuffle
+    if args.balanced is not None:
+        params["balanced"] = args.balanced
+    if args.augmentation is not None:
+        params["augmentation"] = args.augmentation
+    if args.size_change_z is not None:
+        params["size_change_z"] = args.size_change_z
+    if args.size_change_xy is not None:
+        params["size_change_xy"] = args.size_change_xy
+    if args.shift_z is not None:
+        params["shift_z"] = args.shift_z
+    if args.shift_xy is not None:
+        params["shift_xy"] = args.shift_xy
+    if args.rotation is not None:
+        params["rotation"] = args.rotation
+    if args.rotation_z is not None:
+        params["rotation_z"] = args.rotation_z
+    if args.noise is not None:
+        params["noise"] = args.noise
+
+    if args.monitor_metric is not None:
+        params["monitor_metric"] = args.monitor_metric
+    if args.monitor_mode is not None:
+        params["monitor_mode"] = args.monitor_mode
+    if args.learning_rate_start is not None:
+        params["learning_rate_start"] = args.learning_rate_start
+    if args.learning_rate_factor is not None:
+        params["learning_rate_factor"] = args.learning_rate_factor
+    if args.learning_rate_patience is not None:
+        params["learning_rate_patience"] = args.learning_rate_patience
+    if args.learning_rate_min is not None:
+        params["learning_rate_min"] = args.learning_rate_min
+    if args.epochs is not None:
+        params["epochs"] = args.epochs
+    if args.steps is not None:
+        params["steps"] = args.steps
+    if args.steps_mult is not None:
+        params["steps_mult"] = args.steps_mult
+    if args.early_stopping_patience is not None:
+        params["early_stopping_patience"] = args.early_stopping_patience
+
+    return params
+
 
 def main(
         model_name,
         folder_data,
         validation_size=0.1,
-        batch_size=32,
-        epochs=40,
+        validation_set=None,
         verbose=2,
-        shape = (32, 32, 32),
+        random_seed=0,
+        **params,
         ):
+
+    try: 
+        tf.random.set_seed(random_seed)
+    except:
+        tf.compat.v1.set_random_seed(random_seed)
+    np.random.seed(random_seed)
 
     # read data from csv: names and labels
     data_train_labels = pd.read_csv(filename_train_labels)
@@ -48,20 +164,28 @@ def main(
 
     names = [n.split(".")[0] for n in names]
     names_in_folder = [f.name.split(".")[0] for f in os.scandir(folder_data)]
+    names_in_folder_s = set(names_in_folder)
 
     indexes_in_list = []
     for i, n in enumerate(names):
-        if n in names_in_folder:
+        if n in names_in_folder_s:
             indexes_in_list.append(i)
     
     labels = labels[indexes_in_list]
     names = [names[i] for i in indexes_in_list]
 
-    # split
-    indexes = np.arange(len(names))
-    np.random.shuffle(indexes)
-    indexes_train = indexes[:int(len(indexes)*(1-validation_size))]
-    indexes_test = indexes[len(indexes_train):]
+    if not validation_set:
+        # split
+        indexes = np.arange(len(names))
+        np.random.shuffle(indexes)
+        indexes_train = indexes[:int(len(indexes)*(1-validation_size))]
+        indexes_test = indexes[len(indexes_train):]
+    else:
+        data_val_set = pd.read_csv(validation_set)
+        names_val = data_val_set.filename.values.tolist()
+        names_val = [n.split(".")[0] for n in names_val]
+        indexes_test = [i for i in np.arange(len(names)) if names[i] in set(names_val)]
+        indexes_train = [i for i in np.arange(len(names)) if i not in indexes_test]
 
     print("{:6s} {:6d} {:.4f}".format(
         "Train:", len(indexes_train), 
@@ -97,47 +221,60 @@ def main(
     filename_checkpoint         = os.path.join(folder_checkpoints, "{epoch:02d}")
     filename_train_preds        = os.path.join(folder_model, "train_pred.csv")
     filename_test_preds         = os.path.join(folder_model, "test_pred.csv")
+    filename_params             = os.path.join(folder_model, "params.json")
+    filename_zip                = os.path.join(folder_model, "code.zip")
     data_train.to_csv(filename_train_set,   index=False)
     data_test.to_csv(filename_test_set,     index=False)
+    write_json(params, filename_params)
+    zipfiles([__folder_code, __folder_scripts], filename_zip)
 
 
     # init and compile model
-    # model = get_simple_model(shape)
-    model = get_simple_model_2(shape)
+    model = get_simple_model(params["shape"], version=1)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=params["learning_rate_start"]),
         loss=tf.keras.losses.BinaryCrossentropy(),
         metrics=[
             tf.keras.metrics.BinaryAccuracy(name="accuracy"), 
             tf.keras.metrics.Precision(name="precision"),
             tf.keras.metrics.Recall(name="recall"),
             tf.keras.metrics.AUC(name="auc"),
-            MCC(name="mcc"),
+            MCC(threshold=0.5, name="mcc_05"),
+            MCC(threshold=0.9, name="mcc_09"),
+            MCC(threshold=0.99, name="mcc_099"),
         ],
     )
 
     # init dataloder objects for train and test data
-    dataloader_train = DataLoaderReader(
+    dataloader_train = DataLoaderProcesser(
         folder=folder_data,
         names=[names[i] for i in indexes_train],
         targets=labels[indexes_train],
-        shape=shape,
-        shuffle=True,
-        augmentation=True,
+        shape           = params["shape"],
+        shuffle         = params["shuffle"],
+        balanced        = params["balanced"],
+        augmentation    = params["augmentation"],
+        size_change_z   = params["size_change_z"],
+        size_change_xy  = params["size_change_xy"],
+        shift_z         = params["shift_z"],
+        shift_xy        = params["shift_xy"],
+        rotation        = params["rotation"],
+        noise           = params["noise"],
     )
-    dataloader_test = DataLoaderReader(
+    dataloader_test = DataLoaderProcesser(
         folder=folder_data,
         names=[names[i] for i in indexes_test],
         targets=labels[indexes_test],
-        shape=shape,
+        shape=params["shape"],
     )
 
     # get batch generators for train and test data
-    batch_number_train = dataloader_train.get_batch_number(batch_size, False)
-    batch_number_test  = dataloader_test.get_batch_number(batch_size)
-    batch_generator_train = dataloader_train.batch_generator(batch_size, 
+    batch_number_train = dataloader_train.get_batch_number(params["batch_size"], False)
+    batch_number_test  = dataloader_test.get_batch_number(params["batch_size"])
+    batch_generator_train = dataloader_train.batch_generator(params["batch_size"], 
         leave_last=False, load_target=True)
-    batch_generator_test  = dataloader_test.batch_generator(batch_size, load_target=True)
+    batch_generator_test  = dataloader_test.batch_generator(params["batch_size"], load_target=True)
 
     # object for outputting and logging model losses and metrics while training
     custom_logger = CustomLogger(
@@ -150,7 +287,9 @@ def main(
                 "precision",
                 "recall",
                 "auc",
-                "mcc",
+                "mcc_05",
+                "mcc_09",
+                "mcc_099",
             ]
         ],
     )
@@ -159,16 +298,16 @@ def main(
     callbacks = [
         # reduction on plateau of the learning rate
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor="val_auc", 
-            factor=0.5, 
-            patience=5, 
-            min_lr=1e-6,
-            mode="max",
+            monitor = "val_{:s}".format(params["monitor_metric"]),
+            factor  = params["learning_rate_factor"], 
+            patience= params["learning_rate_patience"], 
+            min_lr  = params["learning_rate_min"],
+            mode    = params["monitor_mode"],
         ),
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_auc", 
-            patience=10, 
-            mode="max",
+            monitor = "val_{:s}".format(params["monitor_metric"]),
+            patience= params["early_stopping_patience"], 
+            mode    = params["monitor_mode"],
         ),
         # save all epochs
         tf.keras.callbacks.ModelCheckpoint(
@@ -177,22 +316,32 @@ def main(
         tf.keras.callbacks.ModelCheckpoint(
             filename_checkpoint_best,
             save_best_only=True,
-            monitor="val_auc",
-            mode="max",
+            monitor="val_{:s}".format(params["monitor_metric"]),
+            mode=params["monitor_mode"],
         ),
         # logs
         custom_logger,
     ]
 
+    if params["steps"] is not None:
+        steps_per_epoch = params["steps"]
+    elif params["steps"] is not None:
+        steps_per_epoch = int(batch_number_train * params["steps_mult"])
+    else:
+        steps_per_epoch = batch_number_train
+    print("Batch number: {:d}/{:d} {:d}".format(
+        batch_number_train, steps_per_epoch, batch_number_test))
+
     # run training
     model.fit(
         batch_generator_train,
-        steps_per_epoch=batch_number_train*2,
+        steps_per_epoch=steps_per_epoch,
         validation_data=batch_generator_test,
         validation_steps=batch_number_test,
-        epochs=epochs,
+        epochs=params["epochs"],
         callbacks=callbacks,
         verbose=0,
+        workers=0,
     )
 
     # reload weights of best model epoch
@@ -200,13 +349,13 @@ def main(
 
 
     # running final predictions for train data
-    dataloader = DataLoaderReader(
+    dataloader = DataLoaderProcesser(
         folder=folder_data,
         names=[names[i] for i in indexes_train],
-        shape=shape,
+        shape=params["shape"],
     )
-    batch_number = dataloader.get_batch_number(batch_size)
-    batch_generator = dataloader.batch_generator(batch_size)
+    batch_number = dataloader.get_batch_number(params["batch_size"])
+    batch_generator = dataloader.batch_generator(params["batch_size"])
     predictions = model.predict(
         batch_generator,
         steps=batch_number,
@@ -217,13 +366,13 @@ def main(
     data_train.to_csv(filename_train_preds, index=False)
 
     # running final predictions for test data
-    dataloader = DataLoaderReader(
+    dataloader = DataLoaderProcesser(
         folder=folder_data,
         names=[names[i] for i in indexes_test],
-        shape=shape,
+        shape=params["shape"],
     )
-    batch_number = dataloader.get_batch_number(batch_size)
-    batch_generator = dataloader.batch_generator(batch_size)
+    batch_number = dataloader.get_batch_number(params["batch_size"])
+    batch_generator = dataloader.batch_generator(params["batch_size"])
     predictions = model.predict(
         batch_generator,
         steps=batch_number,
@@ -239,23 +388,88 @@ def main(
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("model", help="model name")
-    parser.add_argument("folder", help="path to data folder")
+    parser.add_argument("--model", help="model name", 
+        default=None)
+    parser.add_argument("--data", help="path to data folder",
+        default=None)
     parser.add_argument("--validation_size", help="ratio size of validation split",
         default=0.1, type=float)
-    parser.add_argument("--batch_size", help="batch size", 
-        default=32, type=int)
-    parser.add_argument("--epochs", help="number of train epochs",
-        default=40, type=int)
+    parser.add_argument("--validation_set", help="path to csv with filenames for validation",
+        default=None)
+    
+    group_general = parser.add_argument_group("general")
+    group_general.add_argument("--batch_size", help="batch size",
+        default=None, type=int)
+    group_general.add_argument("--shape", help="size of all dimensions",
+        default=None, type=int)
+    group_general.add_argument("--shape_xy", help="size of x,y [1, 2] dimensions",
+        default=None, type=int)
+    group_general.add_argument("--shape_z", help="size of z [0] dimension",
+        default=None, type=int)
+    
+    group_dataset = parser.add_argument_group("dataset")
+    group_dataset.add_argument("--shuffle", help="if 1, samples are shuffled each epoch",
+        default=None, type=bool, choices=[0, 1])
+    group_dataset.add_argument("--balanced", help="if 1, classes are sampled equally",
+        default=None, type=bool, choices=[0, 1])
+    group_dataset.add_argument("--augmentation", help="if 1, augmentations to input are applied during training",
+        default=None, type=bool, choices=[0, 1])
+    group_dataset.add_argument("--size_change_z", help="std of change of size of input grid in z [0] dimension",
+        default=None, type=float)
+    group_dataset.add_argument("--size_change_xy", help="std of change of size of input grid in xy [0,1] dimensions",
+        default=None, type=float)
+    group_dataset.add_argument("--shift_z", help="std of shift of grid center in z [0] dimension",
+        default=None, type=float)
+    group_dataset.add_argument("--shift_xy", help="std of shift of grid center in xy [1,2] dimensions",
+        default=None, type=float)
+    group_dataset.add_argument("--rotation", help="if 1, random rotations are applied during interpolation",
+        default=None, type=bool, choices=[0, 1])
+    group_dataset.add_argument("--rotation_z", help="if 1, random rotations around z [0] axis are applied",
+        default=None, type=bool, choices=[0, 1])
+    group_dataset.add_argument("--noise", help="std of noise added to input",
+        default=None, type=float)
+
+    group_training = parser.add_argument_group("training")
+    group_training.add_argument("--monitor_metric", help="name of metric to monitor (for ReduceLROnPlateau,EarlyStopping,Checkpoints)",
+        default="mcc_09", choices=["accuracy", "precision", "recall", "auc", "mcc_05", "mcc_09", "mcc_099"])
+    group_training.add_argument("--monitor_mode", help="monitor mode (e.g. max for acc,prec,rec,auc,mcc and min for crossentropy",
+        default="max", choices=["min", "max"])
+    group_training.add_argument("--learning_rate_start", help="initial value of learning rate",
+        default=None, type=float)
+    group_training.add_argument("--learning_rate_factor", help="factor for ReduceLROnPlateau",
+        default=None, type=float)
+    group_training.add_argument("--learning_rate_patience", help="patience for ReduceLROnPlateau",
+        default=None, type=int)
+    group_training.add_argument("--learning_rate_min", help="minimum learning rate for ReduceLROnPlateau",
+        default=None, type=float)
+    group_training.add_argument("--epochs", help="number of train epochs",
+        default=None, type=int)
+    group_training.add_argument("--steps", help="number of steps per epoch, ",
+        default=None, type=int)
+    group_training.add_argument("--steps_mult", help="if specified, number of steps is calclated as number of batches in dataset * steps_mult",
+        default=None, type=float)
+    group_training.add_argument("--early_stopping_patience", help="patience for EarlyStopping",
+        default=None, type=int)
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+
+    if args.model is None:
+        args.model = get_model_name()
+    if args.data is None:
+        args.data = os.path.join(__folder_data, "cut", "large_120000_cut")
+
+    params = {}
+    params.update(default_params)
+    adjust_params(params, args)
+
     main(
         args.model, 
-        args.folder,
+        args.data,
         validation_size=args.validation_size,
-        batch_size=args.batch_size,
-        epochs=args.epochs,
+        validation_set=args.validation_set,
+        **params,
         )

@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import cv2
-from scipy.interpolate import RegularGridInterpolator
 
 
 COLOR_DIFF = 20
@@ -307,81 +306,4 @@ def crop_volume(volume, threshold=0):
     """
     box = get_volume_bouding_box(volume, threshold=threshold)
     return volume[box[0]:box[3], box[1]:box[4], box[2]:box[5]]
-
-
-class Interpolator:
-    """
-    Interpolator
-
-    Class for changing of 3D grid size with interpolation
-
-    Args:
-        shape: tuple(3); (32, 32, 32);
-            shape of output grid;
-        method: str; "linear"; (see scipy RegularGridInterpolator);
-        bounds_error: bool; False; (see scipy RegularGridInterpolator);
-        fill_value: 0; float; (see scipy RegularGridInterpolator).
-    """
-    def __init__(self, 
-            shape=(32, 32, 32),
-            method="linear",
-            bounds_error=False,
-            fill_value=0,
-            ):
-        self.shape = shape
-        self.method = method
-        self.bounds_error = bounds_error
-        self.fill_value = fill_value
-
-    def get_coords(self, shape):
-        """
-        Gets coordinates of grid vertices with respect to input volume shape.
-        Args:
-            shape: tuple(3); 
-                shape of input volume.
-        Returns:
-            coords: np.array((self.shape[0]*self.shape[1]*self.shape[2], 3), np.float32);
-                coordinates of grid vertices with respect to input shape.
-        """
-        coords1 = np.linspace(0, shape[0]-1, self.shape[0])
-        coords2 = np.linspace(0, shape[1]-1, self.shape[1])
-        coords3 = np.linspace(0, shape[2]-1, self.shape[2])
-        coords = np.empty((self.shape[0]*self.shape[1]*self.shape[2], 3), np.float32)
-        for i, c1 in enumerate(coords1):
-            for j, c2 in enumerate(coords2):
-                for k, c3 in enumerate(coords3):
-                    coords[i * self.shape[1] * self.shape[2] + j * self.shape[2] + k] = \
-                        [c1, c2, c3]
-        return coords
-
-    def assign(self, volume, grid):
-        """
-        Assigns interpolated from input 3D volume to grid.
-        Args:
-            volume: np.array((shape_x, shape_y, shape_z), np.float32);
-                3D array to interpolate specified grid by;
-            grid: np.array((self.shape[0], self.shape[1], self.shape[2]), np.float32);
-                numpy array to store interpolated values into.
-        """
-        ind1 = np.arange(volume.shape[0])
-        ind2 = np.arange(volume.shape[1])
-        ind3 = np.arange(volume.shape[2])
-        fn = RegularGridInterpolator(
-            (ind1, ind2, ind3), volume, 
-            method=self.method, 
-            bounds_error=self.bounds_error, 
-            fill_value=self.fill_value)
-        grid[:] = np.reshape(fn(self.get_coords(volume.shape)), self.shape)
-        return
-        
-    def interpolate(self, volume):
-        """
-        Calculates interpolation of 3D volume.
-        """
-        grid = np.empty(self.shape, np.float32)
-        self.assign(volume, grid)
-        return grid
-
-    def __call__(self, volume):
-        return self.interpolate(volume)
         

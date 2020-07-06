@@ -9,6 +9,7 @@ __folder_current = os.path.abspath(os.path.dirname(__file__))
 __folder = os.path.join(__folder_current, "..")
 __folder_res    = os.path.join(__folder, "res")
 __folder_data   = os.path.join(__folder_res, "data")
+__folder_submissions = os.path.join(__folder_res, "submissions")
 filename_test_metadata = os.path.join(__folder_data, "test_metadata.csv")
 
 def binarize(predictions, threshold=0.5):
@@ -38,11 +39,18 @@ def main(filename_predictions, filename_out, threshold=0.5):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", help="path to predictions file")
-    parser.add_argument("out", help="output submission file")
+    parser.add_argument("--out", help="output submission file", 
+        default=None)
     parser.add_argument("--threshold", help="threshold for true values",
         default=0.5, type=float)
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.out is None:
+        basename = os.path.basename(args.path)
+        model_name = basename.split("-")[0]
+        ep = basename.split("-")[1]
+        args.out = os.path.join(__folder_submissions, "{:s}-{:s}-th{:.2f}.csv".format(
+            model_name, ep, args.threshold))
     main(args.path, args.out, threshold=args.threshold)
