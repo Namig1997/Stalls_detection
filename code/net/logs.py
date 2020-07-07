@@ -25,6 +25,7 @@ class CustomLogger(tf.keras.callbacks.Callback):
             for name in name_group:
                 self.names.append(name)
                 self.string_print += " {" + name + ":5.3f}"
+        self.string_print += " "
         self.epoch = 0
         self.create_folder(folder)
         if append:

@@ -7,33 +7,51 @@ from .layers import (
     ConvBlock_4, Dense,
 )
 
-def get_simple_model(input_shape=(32, 32, 32)):
+def get_simple_model(input_shape=(32, 32, 32), version=0, **kwargs):
     args = {}
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Reshape(input_shape + (1,)),
-        ConvBlock_1(32, **args),
-        ConvBlock_1(64, **args),
-        ConvBlock_1(64, **args),
-        ConvBlock_1(64, **args),
-        Conv3D_bn(64, kernel_size=2, padding="valid", **args),
-        tf.keras.layers.Reshape((64,)),
-        Dense(128,),
-        Dense(1, activation=tf.keras.activations.sigmoid),
-    ])
-    return model
-
-
-def get_simple_model_2(input_shape=(32, 32, 32)):
-    args = {}
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Reshape(input_shape + (1,)),
-        ConvBlock_2(32, **args),
-        ConvBlock_2(64, **args),
-        ConvBlock_4(64, **args),
-        ConvBlock_4(64, **args),
-        Conv3D_bn(128, kernel_size=2, padding="valid", **args),
-        tf.keras.layers.Reshape((128,)),
-        Dense(512, dropout=0.5),
-        Dense(1, activation=tf.keras.activations.sigmoid),
-    ])
+    args.update(kwargs)
+    if input_shape == (64, 64, 64):
+        model = tf.keras.models.Sequential([
+            tf.keras.layers.Reshape(input_shape + (1,)),
+            ConvBlock_2(32, **args),
+            ConvBlock_2(32, **args),
+            ConvBlock_2(64, **args),
+            ConvBlock_2(64, **args),
+            ConvBlock_4(64, **args),
+            Conv3D_bn(128, kernel_size=2, padding="valid", **args),
+            tf.keras.layers.Reshape((128,)),
+            Dense(512, dropout=0.5),
+            Dense(1, activation=tf.keras.activations.sigmoid),
+        ])
+    else:
+        if input_shape == (32, 32, 32):
+            kernel_size_last = 2
+        elif input_shape == (48, 48, 48):
+            kernel_size_last = 3
+        if version == 0:
+            model = tf.keras.models.Sequential([
+                tf.keras.layers.Reshape(input_shape + (1,)),
+                ConvBlock_1(32, **args),
+                ConvBlock_1(64, **args),
+                ConvBlock_1(64, **args),
+                ConvBlock_1(64, **args),
+                Conv3D_bn(64, kernel_size=kernel_size_last, 
+                    padding="valid", **args),
+                tf.keras.layers.Reshape((64,)),
+                Dense(128,),
+                Dense(1, activation=tf.keras.activations.sigmoid),
+            ])
+        elif version == 1:
+            model = tf.keras.models.Sequential([
+                tf.keras.layers.Reshape(input_shape + (1,)),
+                ConvBlock_2(32, **args),
+                ConvBlock_2(64, **args),
+                ConvBlock_4(64, **args),
+                ConvBlock_4(64, **args),
+                Conv3D_bn(128, kernel_size=kernel_size_last, 
+                    padding="valid", **args),
+                tf.keras.layers.Reshape((128,)),
+                Dense(512, dropout=0.5),
+                Dense(1, activation=tf.keras.activations.sigmoid),
+            ])
     return model

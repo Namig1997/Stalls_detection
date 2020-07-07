@@ -40,7 +40,7 @@ class MCC(tf.keras.metrics.Metric):
         FP = self.FP.result()
         FN = self.FN.result()
         return tf.cast((TP*TN)-(FP*FN), tf.float32) / \
-            tf.maximum(tf.sqrt(tf.cast((TP+FP)*(TP+FP)*(TN+FP)*(TN+FN), tf.float32)), 1e-9)
+            tf.maximum(tf.sqrt(tf.cast((TP+FP)*(TP+FN)*(TN+FP)*(TN+FN), tf.float32)), 1e-9)
 
     def reset_states(self):
         self.TP.reset_states()
