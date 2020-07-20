@@ -3,7 +3,6 @@ import sys
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
-import numpy as np
 import pandas as pd
 import tensorflow as tf
 import argparse
@@ -71,6 +70,7 @@ def main(
         folder=folder_data,
         names=names,
         shape=params["shape"],
+        normed_xy=params["normed_xy"],
     )
 
     batch_number = dataloader.get_batch_number(params["batch_size"])
@@ -171,6 +171,7 @@ if __name__ == "__main__":
     else:
         print("Data: {:s}".format(args.data))
     print("Out: {:s}".format(args.out))
+
 
     main(
         args.model,

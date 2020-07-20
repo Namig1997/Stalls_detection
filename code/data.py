@@ -18,6 +18,7 @@ class DataLoader:
             extension=None,
             shuffle=False,
             balanced=False,
+            class_ratio=None,
             ):
         self.folder     = folder
         self.names      = names
@@ -25,6 +26,7 @@ class DataLoader:
         self.balanced   = balanced
         self.extension  = extension
         self.targets    = targets
+        self.class_ratio= class_ratio
 
     def get_filename(self, name):
         if isinstance(name, int):
@@ -73,8 +75,16 @@ class DataLoader:
                 if index_1 == len(indexes_1):
                     index_1 = 0
         else:
-            indexes = np.arange(len(self.names)).tolist()
-            if shuffle:
+            if self.class_ratio is None:
+                indexes = np.arange(len(self.names)).tolist()
+                if shuffle:
+                    np.random.shuffle(indexes)
+            else:
+                indexes_0 = np.where(self.targets == 0)[0].tolist()
+                indexes_1 = np.where(self.targets == 1)[0].tolist()
+                np.random.shuffle(indexes_0)
+                np.random.shuffle(indexes_1)
+                indexes = indexes_1 + indexes_0[:int(len(indexes_1)*self.class_ratio)]
                 np.random.shuffle(indexes)
         return indexes
 
@@ -207,6 +217,7 @@ class DataLoaderProcesser(DataLoaderReader):
             shift_xy=0.1,
             rotation=True,
             rotation_z=True,
+            normed_xy=False,
             noise=0.1,
             threads=8,
             **kwargs,
@@ -219,6 +230,7 @@ class DataLoaderProcesser(DataLoaderReader):
         self.rotation = rotation
         self.rotation_z = rotation_z
         self.noise = noise
+        self.normed_xy = normed_xy
         self.interpolator = InterpolatorCustom(
             shape=self.shape, threads=threads)
 
@@ -256,7 +268,8 @@ class DataLoaderProcesser(DataLoaderReader):
                 rotation_theta=theta,
                 rotation_phi=phi, 
                 rotation_psi=psi,
-                )
+                normed_xy=self.normed_xy,
+            )
             if random.getrandbits(1):
                 grid[:] = np.flip(grid, 0)
             if random.getrandbits(1):
@@ -268,4 +281,7 @@ class DataLoaderProcesser(DataLoaderReader):
                 if r > 0:
                     grid[:] = np.rot90(grid, r, axes=(-2, -1))
         else:
-            self.interpolator.assign(input, grid)
+            self.interpolator.assign(input, 
+                grid,
+                normed_xy=self.normed_xy,
+            )

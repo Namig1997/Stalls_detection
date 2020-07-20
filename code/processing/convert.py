@@ -99,6 +99,8 @@ def crop_image_rect(image, rect, add=0):
     """
     if rect is None:
         rect = np.array([0, 0, image.shape[0], image.shape[1]])
+    else:
+        rect = rect.copy()
     rect[0] = max(rect[0]-add, 0)
     rect[1] = max(rect[1]-add, 0)
     rect[2] = min(rect[2]+add, image.shape[0])

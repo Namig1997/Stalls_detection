@@ -1,0 +1,31 @@
+{
+    "shape": [
+        48,
+        48,
+        48
+    ],
+    "shuffle": true,
+    "balanced": false,
+    "class_ratio": 10,
+    "augmentation": true,
+    "size_change_z": 0.05,
+    "size_change_xy": 0.05,
+    "shift_z": 0.05,
+    "shift_xy": 0.05,
+    "rotation": false,
+    "rotation_z": true,
+    "normed_xy": false,
+    "noise": 0.0,
+    "monitor_metric": "mcc_05",
+    "monitor_mode": "max",
+    "learning_rate_start": 0.001,
+    "learning_rate_factor": 0.1,
+    "learning_rate_patience": 10,
+    "learning_rate_min": 1e-06,
+    "batch_size": 64,
+    "epochs": 100,
+    "steps": 500,
+    "steps_mult": null,
+    "early_stopping_patience": 40,
+    "model_version": 1
+}

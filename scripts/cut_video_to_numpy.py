@@ -70,7 +70,7 @@ def main(folder_in, folder_out, list_file=None,
     else:
         names = [f.name.split(".")[0] for f in os.scandir(folder_in)
             if f.name.endswith(".mp4")]
-    if not new:
+    if not new and os.path.isdir(folder_out):
         names_done = [f.name.split(".")[0] for f in os.scandir(folder_out)]
         names_done_s = set(names_done)
         names = [n for n in names if n not in names_done_s]

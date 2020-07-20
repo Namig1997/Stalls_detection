@@ -18,6 +18,9 @@ from data import DataLoaderReader, DataLoaderProcesser
 from net.model import get_simple_model
 from net.metrics import MCC
 from net.logs import CustomLogger
+from net.callback import ReduceLROnPlateauRestore
+from net.layers import _custom_objects
+_custom_objects["MCC"] = MCC
 
 __folder_scripts = os.path.join(__folder, "scripts")
 __folder_res    = os.path.join(__folder, "res")
@@ -43,6 +46,11 @@ def write_json(data, filename):
         json.dump(data, file, indent=4)
     return json.dumps(data)
 
+def read_json(filename):
+    with open(filename, "r") as file:
+        data = json.load(file)
+    return data
+
 def zipfiles(filenames_in, filename_out):
     obj = ZipFile(filename_out, "w")
     for filename in filenames_in:
@@ -65,6 +73,7 @@ default_params = {
     "shape": (32, 32, 32),
     "shuffle": True,
     "balanced": True,
+    "class_ratio": 10,
     "augmentation": True,
     "size_change_z": 0.05,
     "size_change_xy": 0.05,
@@ -72,7 +81,8 @@ default_params = {
     "shift_xy": 0.05,
     "rotation": False,
     "rotation_z": True,
-    "noise": 0.05,
+    "normed_xy": False,
+    "noise": 0.,
     "monitor_metric": "mcc_09",
     "monitor_mode": "max",
     "learning_rate_start": 1e-3,
@@ -84,6 +94,7 @@ default_params = {
     "steps": None,
     "steps_mult": None,
     "early_stopping_patience": 40,
+    "model_version": 1, 
 }
 
 def adjust_params(params, args):
@@ -97,11 +108,11 @@ def adjust_params(params, args):
         params["shape"] = (params["shape"][0], args.shape_xy, args.shape_xy)
     
     if args.shuffle is not None:
-        params["shuffle"] = args.shuffle
+        params["shuffle"] = bool(args.shuffle)
     if args.balanced is not None:
-        params["balanced"] = args.balanced
+        params["balanced"] = bool(args.balanced)
     if args.augmentation is not None:
-        params["augmentation"] = args.augmentation
+        params["augmentation"] = bool(args.augmentation)
     if args.size_change_z is not None:
         params["size_change_z"] = args.size_change_z
     if args.size_change_xy is not None:
@@ -111,11 +122,13 @@ def adjust_params(params, args):
     if args.shift_xy is not None:
         params["shift_xy"] = args.shift_xy
     if args.rotation is not None:
-        params["rotation"] = args.rotation
+        params["rotation"] = bool(args.rotation)
     if args.rotation_z is not None:
-        params["rotation_z"] = args.rotation_z
+        params["rotation_z"] = bool(args.rotation_z)
     if args.noise is not None:
         params["noise"] = args.noise
+    if args.normed_xy is not None:
+        params["normed_xy"] = bool(args.normed_xy)
 
     if args.monitor_metric is not None:
         params["monitor_metric"] = args.monitor_metric
@@ -137,6 +150,8 @@ def adjust_params(params, args):
         params["steps_mult"] = args.steps_mult
     if args.early_stopping_patience is not None:
         params["early_stopping_patience"] = args.early_stopping_patience
+    if args.model_version is not None:
+        params["model_version"] = args.model_version
 
     return params
 
@@ -145,9 +160,12 @@ def main(
         model_name,
         folder_data,
         validation_size=0.1,
+        train_set=None,
         validation_set=None,
         verbose=2,
         random_seed=0,
+        load_model=None, 
+        load_epoch=None,
         **params,
         ):
 
@@ -174,18 +192,25 @@ def main(
     labels = labels[indexes_in_list]
     names = [names[i] for i in indexes_in_list]
 
-    if not validation_set:
-        # split
-        indexes = np.arange(len(names))
-        np.random.shuffle(indexes)
-        indexes_train = indexes[:int(len(indexes)*(1-validation_size))]
-        indexes_test = indexes[len(indexes_train):]
-    else:
+    
+    # split
+    indexes = np.arange(len(names))
+    np.random.shuffle(indexes)
+    indexes_train = indexes[:int(len(indexes)*(1-validation_size))]
+    indexes_test = indexes[len(indexes_train):]
+    if validation_set:
         data_val_set = pd.read_csv(validation_set)
         names_val = data_val_set.filename.values.tolist()
         names_val = [n.split(".")[0] for n in names_val]
-        indexes_test = [i for i in np.arange(len(names)) if names[i] in set(names_val)]
+        names_val_s = set(names_val)
+        indexes_test = [i for i in np.arange(len(names)) if names[i] in names_val_s]
         indexes_train = [i for i in np.arange(len(names)) if i not in indexes_test]
+    if train_set:
+        data_train_set = pd.read_csv(train_set)
+        names_train = data_train_set.filename.values.tolist()
+        names_train = [n.split(".")[0] for n in names_train]
+        names_train_s = set(names_train)
+        indexes_train = [i for i in np.arange(len(names)) if names[i] in names_train_s]
 
     print("{:6s} {:6d} {:.4f}".format(
         "Train:", len(indexes_train), 
@@ -230,7 +255,8 @@ def main(
 
 
     # init and compile model
-    model = get_simple_model(params["shape"], version=1)
+    model = get_simple_model(params["shape"], 
+            version=params["model_version"])
     model.compile(
         optimizer=tf.keras.optimizers.Adam(
             learning_rate=params["learning_rate_start"]),
@@ -240,11 +266,24 @@ def main(
             tf.keras.metrics.Precision(name="precision"),
             tf.keras.metrics.Recall(name="recall"),
             tf.keras.metrics.AUC(name="auc"),
+            MCC(threshold=0.1, name="mcc_01"),
             MCC(threshold=0.5, name="mcc_05"),
             MCC(threshold=0.9, name="mcc_09"),
             MCC(threshold=0.99, name="mcc_099"),
         ],
     )
+    model.build((None,) + tuple(params["shape"]))
+
+    if load_model:
+        if load_epoch is not None:
+            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", 
+                "{:02d}".format(load_epoch))
+        else:
+            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", "best")
+        # model = tf.keras.models.load_model(filename_checkpoint_pre,
+        #     custom_objects=_custom_objects, compile=True)
+        model.load_weights(filename_checkpoint_pre)
+
 
     # init dataloder objects for train and test data
     dataloader_train = DataLoaderProcesser(
@@ -254,6 +293,7 @@ def main(
         shape           = params["shape"],
         shuffle         = params["shuffle"],
         balanced        = params["balanced"],
+        class_ratio     = params["class_ratio"],
         augmentation    = params["augmentation"],
         size_change_z   = params["size_change_z"],
         size_change_xy  = params["size_change_xy"],
@@ -261,12 +301,14 @@ def main(
         shift_xy        = params["shift_xy"],
         rotation        = params["rotation"],
         noise           = params["noise"],
+        normed_xy       = params["normed_xy"],
     )
     dataloader_test = DataLoaderProcesser(
         folder=folder_data,
         names=[names[i] for i in indexes_test],
         targets=labels[indexes_test],
         shape=params["shape"],
+        normed_xy=params["normed_xy"],
     )
 
     # get batch generators for train and test data
@@ -287,6 +329,9 @@ def main(
                 "precision",
                 "recall",
                 "auc",
+            ],
+            [
+                "mcc_01",
                 "mcc_05",
                 "mcc_09",
                 "mcc_099",
@@ -298,6 +343,7 @@ def main(
     callbacks = [
         # reduction on plateau of the learning rate
         tf.keras.callbacks.ReduceLROnPlateau(
+        # ReduceLROnPlateauRestore(
             monitor = "val_{:s}".format(params["monitor_metric"]),
             factor  = params["learning_rate_factor"], 
             patience= params["learning_rate_patience"], 
@@ -311,13 +357,16 @@ def main(
         ),
         # save all epochs
         tf.keras.callbacks.ModelCheckpoint(
-            filename_checkpoint),
+            filename_checkpoint,
+            save_format="h5",
+        ),
         # save best epoch
         tf.keras.callbacks.ModelCheckpoint(
             filename_checkpoint_best,
             save_best_only=True,
             monitor="val_{:s}".format(params["monitor_metric"]),
             mode=params["monitor_mode"],
+            save_format="h5",
         ),
         # logs
         custom_logger,
@@ -394,7 +443,13 @@ def parse_args():
         default=None)
     parser.add_argument("--validation_size", help="ratio size of validation split",
         default=0.1, type=float)
+    parser.add_argument("--train_set", help="path to csv file with samples for training",
+        default=None)
     parser.add_argument("--validation_set", help="path to csv with filenames for validation",
+        default=None)
+    parser.add_argument("--load_model", help="if specified, the pretrained model will be loaded",
+        default=None)
+    parser.add_argument("--load_epoch", help="if set, model from corresponding checkpoint will be loaded",
         default=None)
     
     group_general = parser.add_argument_group("general")
@@ -409,11 +464,11 @@ def parse_args():
     
     group_dataset = parser.add_argument_group("dataset")
     group_dataset.add_argument("--shuffle", help="if 1, samples are shuffled each epoch",
-        default=None, type=bool, choices=[0, 1])
+        default=None, type=int, choices=[0, 1])
     group_dataset.add_argument("--balanced", help="if 1, classes are sampled equally",
-        default=None, type=bool, choices=[0, 1])
+        default=None, type=int, choices=[0, 1])
     group_dataset.add_argument("--augmentation", help="if 1, augmentations to input are applied during training",
-        default=None, type=bool, choices=[0, 1])
+        default=None, type=int, choices=[0, 1])
     group_dataset.add_argument("--size_change_z", help="std of change of size of input grid in z [0] dimension",
         default=None, type=float)
     group_dataset.add_argument("--size_change_xy", help="std of change of size of input grid in xy [0,1] dimensions",
@@ -423,11 +478,13 @@ def parse_args():
     group_dataset.add_argument("--shift_xy", help="std of shift of grid center in xy [1,2] dimensions",
         default=None, type=float)
     group_dataset.add_argument("--rotation", help="if 1, random rotations are applied during interpolation",
-        default=None, type=bool, choices=[0, 1])
+        default=None, type=int, choices=[0, 1])
     group_dataset.add_argument("--rotation_z", help="if 1, random rotations around z [0] axis are applied",
-        default=None, type=bool, choices=[0, 1])
+        default=None, type=int, choices=[0, 1])
     group_dataset.add_argument("--noise", help="std of noise added to input",
         default=None, type=float)
+    group_dataset.add_argument("--normed_xy", help="if 1, both xy dimensions [0,1] normed by the same shape",
+        default=None, type=int, choices=[0, 1])
 
     group_training = parser.add_argument_group("training")
     group_training.add_argument("--monitor_metric", help="name of metric to monitor (for ReduceLROnPlateau,EarlyStopping,Checkpoints)",
@@ -450,6 +507,8 @@ def parse_args():
         default=None, type=float)
     group_training.add_argument("--early_stopping_patience", help="patience for EarlyStopping",
         default=None, type=int)
+    group_training.add_argument("--model_version", help="model architecture type",
+        default=None, type=int)
 
     return parser.parse_args()
 
@@ -462,14 +521,23 @@ if __name__ == "__main__":
     if args.data is None:
         args.data = os.path.join(__folder_data, "cut", "large_120000_cut")
 
-    params = {}
-    params.update(default_params)
+    if args.load_model and not os.path.isdir(args.load_model):
+        args.load_model = os.path.join(__folder_models, args.load_model)
+
+    if not args.load_model:
+        params = {}
+        params.update(default_params)
+    else:
+        params = read_json(os.path.join(args.load_model, "params.json"))
     adjust_params(params, args)
 
     main(
         args.model, 
         args.data,
         validation_size=args.validation_size,
+        train_set=args.train_set,
         validation_set=args.validation_set,
+        load_model=args.load_model,
+        load_epoch=args.load_epoch,
         **params,
         )

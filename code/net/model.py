@@ -8,11 +8,13 @@ from .layers import (
 )
 
 def get_simple_model(input_shape=(32, 32, 32), version=0, **kwargs):
+    input_shape = tuple(input_shape)
     args = {}
     args.update(kwargs)
     if input_shape == (64, 64, 64):
         model = tf.keras.models.Sequential([
             tf.keras.layers.Reshape(input_shape + (1,)),
+                # input_shape=input_shape,),
             ConvBlock_2(32, **args),
             ConvBlock_2(32, **args),
             ConvBlock_2(64, **args),
@@ -31,6 +33,7 @@ def get_simple_model(input_shape=(32, 32, 32), version=0, **kwargs):
         if version == 0:
             model = tf.keras.models.Sequential([
                 tf.keras.layers.Reshape(input_shape + (1,)),
+                    # input_shape=input_shape,),
                 ConvBlock_1(32, **args),
                 ConvBlock_1(64, **args),
                 ConvBlock_1(64, **args),
@@ -44,6 +47,7 @@ def get_simple_model(input_shape=(32, 32, 32), version=0, **kwargs):
         elif version == 1:
             model = tf.keras.models.Sequential([
                 tf.keras.layers.Reshape(input_shape + (1,)),
+                    # input_shape=input_shape,),
                 ConvBlock_2(32, **args),
                 ConvBlock_2(64, **args),
                 ConvBlock_4(64, **args),
@@ -52,6 +56,19 @@ def get_simple_model(input_shape=(32, 32, 32), version=0, **kwargs):
                     padding="valid", **args),
                 tf.keras.layers.Reshape((128,)),
                 Dense(512, dropout=0.5),
+                Dense(1, activation=tf.keras.activations.sigmoid),
+            ])
+        elif version == 2:
+            model = tf.keras.models.Sequential([
+                tf.keras.layers.Reshape(input_shape + (1,)),
+                ConvBlock_2(32, **args),
+                ConvBlock_2(64, **args),
+                ConvBlock_4(64, **args),
+                ConvBlock_4(64, **args),
+                Conv3D_bn(128, kernel_size=kernel_size_last, 
+                    padding="valid", **args),
+                tf.keras.layers.Reshape((128,)),
+                Dense(128),
                 Dense(1, activation=tf.keras.activations.sigmoid),
             ])
     return model

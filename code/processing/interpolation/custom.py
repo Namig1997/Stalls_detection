@@ -106,6 +106,7 @@ class InterpolatorCustom:
             rotation_theta=0,
             rotation_phi=0,
             rotation_psi=0,
+            normed_xy=False,
             ):
         center = (np.array(shape, np.float32) - 1.) / 2.
         center[0] += shift_z * shape[0]
@@ -119,8 +120,14 @@ class InterpolatorCustom:
         rotation_matrix = self.rotation_matrix(rotation_theta, rotation_phi, rotation_psi)
         basis = np.dot(basis, rotation_matrix)
         basis[:, 0] *= (shape[0] - 1) / self.shape[0] * size_z
-        basis[:, 1] *= (shape[1] - 1) / self.shape[1] * size_xy
-        basis[:, 2] *= (shape[2] - 1) / self.shape[2] * size_xy
+        if normed_xy:
+            shape_n = max(shape[1], shape[2])
+            basis[:, 1] *= (shape_n - 1) / self.shape[1] * size_xy
+            basis[:, 2] *= (shape_n - 1) / self.shape[2] * size_xy
+        else:
+            basis[:, 1] *= (shape[1] - 1) / self.shape[1] * size_xy
+            basis[:, 2] *= (shape[2] - 1) / self.shape[2] * size_xy
+
         self.basis = basis
         self.center = center
 
