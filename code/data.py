@@ -28,6 +28,13 @@ class DataLoader:
         self.targets    = targets
         self.class_ratio= class_ratio
 
+    @property
+    def actual_class_ratio(self):
+        if self.balanced:
+            return 1.
+        else:
+            return self.class_ratio
+
     def get_filename(self, name):
         if isinstance(name, int):
             name = self.names[name]

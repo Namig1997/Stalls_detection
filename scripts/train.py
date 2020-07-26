@@ -20,6 +20,7 @@ from net.metrics import MCC
 from net.logs import CustomLogger
 from net.callback import ReduceLROnPlateauRestore
 from net.layers import _custom_objects
+from net.losses import WeightedBinaryCrossentropy
 _custom_objects["MCC"] = MCC
 
 __folder_scripts = os.path.join(__folder, "scripts")
@@ -211,6 +212,7 @@ def main(
         names_train = [n.split(".")[0] for n in names_train]
         names_train_s = set(names_train)
         indexes_train = [i for i in np.arange(len(names)) if names[i] in names_train_s]
+        indexes_train = [i for i in indexes_train if i not in indexes_test]
 
     print("{:6s} {:6d} {:.4f}".format(
         "Train:", len(indexes_train), 
@@ -254,37 +256,6 @@ def main(
     zipfiles([__folder_code, __folder_scripts], filename_zip)
 
 
-    # init and compile model
-    model = get_simple_model(params["shape"], 
-            version=params["model_version"])
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(
-            learning_rate=params["learning_rate_start"]),
-        loss=tf.keras.losses.BinaryCrossentropy(),
-        metrics=[
-            tf.keras.metrics.BinaryAccuracy(name="accuracy"), 
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-            tf.keras.metrics.AUC(name="auc"),
-            MCC(threshold=0.1, name="mcc_01"),
-            MCC(threshold=0.5, name="mcc_05"),
-            MCC(threshold=0.9, name="mcc_09"),
-            MCC(threshold=0.99, name="mcc_099"),
-        ],
-    )
-    model.build((None,) + tuple(params["shape"]))
-
-    if load_model:
-        if load_epoch is not None:
-            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", 
-                "{:02d}".format(load_epoch))
-        else:
-            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", "best")
-        # model = tf.keras.models.load_model(filename_checkpoint_pre,
-        #     custom_objects=_custom_objects, compile=True)
-        model.load_weights(filename_checkpoint_pre)
-
-
     # init dataloder objects for train and test data
     dataloader_train = DataLoaderProcesser(
         folder=folder_data,
@@ -310,6 +281,40 @@ def main(
         shape=params["shape"],
         normed_xy=params["normed_xy"],
     )
+
+    # init and compile model
+    model = get_simple_model(params["shape"], 
+            version=params["model_version"])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=params["learning_rate_start"]),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        # loss=WeightedBinaryCrossentropy(
+        #     weight=dataloader_train.actual_class_ratio,
+        #     # weight=2,
+        # ),
+        metrics=[
+            tf.keras.metrics.BinaryAccuracy(name="accuracy"), 
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
+            tf.keras.metrics.AUC(name="auc"),
+            MCC(threshold=0.1, name="mcc_01"),
+            MCC(threshold=0.5, name="mcc_05"),
+            MCC(threshold=0.9, name="mcc_09"),
+            MCC(threshold=0.99, name="mcc_099"),
+        ],
+    )
+    model.build((None,) + tuple(params["shape"]))
+
+    if load_model:
+        if load_epoch is not None:
+            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", 
+                "{:02d}".format(load_epoch))
+        else:
+            filename_checkpoint_pre = os.path.join(load_model, "checkpoints", "best")
+        # model = tf.keras.models.load_model(filename_checkpoint_pre,
+        #     custom_objects=_custom_objects, compile=True)
+        model.load_weights(filename_checkpoint_pre)
 
     # get batch generators for train and test data
     batch_number_train = dataloader_train.get_batch_number(params["batch_size"], False)

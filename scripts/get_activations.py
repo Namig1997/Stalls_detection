@@ -43,6 +43,8 @@ def main(
         out,
         batch_size=None,
         epoch=None, 
+        folder_train=folder_default_train,
+        folder_test=folder_default_test,
         ):
     
     folder_model = os.path.join(__folder_models, model_name)
@@ -69,15 +71,15 @@ def main(
         params["batch_size"] = batch_size
 
     dataloader = DataLoaderProcesser(
-        folder=folder_default_train,
+        folder=folder_train,
         names=names_train,
         shape=params["shape"],
         normed_xy=params["normed_xy"],
     )
 
-    # model = tf.keras.models.load_model(filename_checkpoint,
-    #     custom_objects=_custom_objects, compile=True)
-    model = get_simple_model(tuple(dataloader.shape), version=1)
+    model = tf.keras.models.load_model(filename_checkpoint,
+        custom_objects=_custom_objects, compile=True)
+    # model = get_simple_model(tuple(dataloader.shape), version=1)
     model._set_inputs(tf.keras.Input(dataloader.shape))
     model.load_weights(filename_checkpoint, by_name=True)
 
@@ -131,7 +133,7 @@ def main(
 
     # TEST SET
     dataloader.names = names_test
-    dataloader.folder = folder_default_test
+    dataloader.folder = folder_test
     batch_number = dataloader.get_batch_number(params["batch_size"])
     batch_generator = dataloader.batch_generator(params["batch_size"])
     predictions, activations = model_2.predict(
@@ -162,7 +164,15 @@ def parse_args():
         default=None)
     parser.add_argument("--batch_size", help="batch size",
         default=None, type=int)
-    parser.add_argument("--epoch", help="index of checkpoint to load; if not provided, best is loaded")
+    parser.add_argument("--epoch", 
+        help="index of checkpoint to load; if not provided, best is loaded",
+        default=None, type=int)
+    parser.add_argument("--files_train", 
+        help="path to folder with training/validation files",
+        default=folder_default_train)
+    parser.add_argument("--files_test",
+        help="path to folder with test set files",
+        default=folder_default_test)
     return parser.parse_args()
 
 
@@ -193,4 +203,6 @@ if __name__ == "__main__":
         args.out, 
         batch_size=args.batch_size,
         epoch=args.epoch,
+        folder_train=args.files_train,
+        folder_test=args.files_test,
     )
